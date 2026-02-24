@@ -20,6 +20,7 @@ JumpIQ is an automotive intelligence platform. This repository implements the **
 
 | Document | Description |
 |----------|-------------|
+| **[docs/REQUIREMENTS_CHECKLIST.md](docs/REQUIREMENTS_CHECKLIST.md)** | Requirement-by-requirement checklist with demo proof — "is everything done?" |
 | **[docs/SETUP.md](docs/SETUP.md)** | Step-by-step setup and run instructions (Python, API, dashboard) |
 | **[docs/PROJECT_GUIDE.md](docs/PROJECT_GUIDE.md)** | Detailed project explanation for the team — data flow diagrams, file-by-file walkthrough, design decisions, how to extend |
 | **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Architecture diagram (Mermaid) and component selection justification — ingestion, validation, cross-validation, outlier detection, market signals, insight generation |
