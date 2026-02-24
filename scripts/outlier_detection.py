@@ -1,6 +1,5 @@
 """
-Outlier detection with confidence scores for human review. No auto-correction.
-Uses IQR and z-score style deviation; confidence 0-1 from strength of signal and consistency.
+Flag statistical outliers and assign confidence scores for human review.
 """
 import numpy as np
 import pandas as pd

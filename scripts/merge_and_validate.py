@@ -1,6 +1,6 @@
 """
-Merge multi-source records by dealer_id with explicit policy.
-Conflict resolution: median across sources (no auto-correction; conflicts flagged for review).
+Merge records from multiple sources by dealer_id using median.
+Flags large discrepancies between sources for review.
 """
 import pandas as pd
 from pathlib import Path

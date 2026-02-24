@@ -1,5 +1,5 @@
 """
-Cross-validate dealer metrics against external benchmarks: state-level trends and seasonality.
+Compare dealer metrics against state-level benchmarks and apply seasonality.
 """
 from pathlib import Path
 import pandas as pd

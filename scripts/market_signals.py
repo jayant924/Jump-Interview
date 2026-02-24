@@ -1,6 +1,5 @@
 """
-Market signals layer: connect external signals to internal parameters and forecast impact.
-Placeholder implementation: config-driven signal factors applied to dealer aggregates.
+Load external market signals and estimate their revenue impact.
 """
 from pathlib import Path
 import json

@@ -1,9 +1,5 @@
 """
-JumpIQ-style validation & insights pipeline:
-  Multi-source ingestion -> Validation -> Merge -> Cross-validate (state, seasonality)
-  -> Outlier detection (confidence scores for human review) -> Market signals impact -> Output.
-Run: python -m scripts.run_validation_pipeline
-Output: output/processed_results.json (used by API and dashboard).
+Main pipeline: ingest -> merge -> cross-validate -> outlier detection -> market signals -> output JSON.
 """
 import sys
 import json

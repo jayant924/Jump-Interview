@@ -1,136 +1,93 @@
-# JumpIQ – Data Validation & Market Insights
+# Dealership Data Validation & Market Insights
 
-> Scalable data validation and market insights architecture for dealership data.
+Built for the JumpIQ evaluation task. The system ingests dealership data from multiple sources, validates and cross-checks it against benchmarks, flags outliers for human review (with confidence scores), and shows market signal impact — all visible in a dashboard.
 
----
+I come from a backend background and don't have deep Python experience, so I used AI tooling (Cursor + Claude) to help implement the data processing scripts. The architecture design, data flow thinking, and component decisions are mine — the AI helped me write the pandas/numpy code faster.
 
-## What this system does
+## How to run
 
-JumpIQ is an automotive intelligence platform. This repository implements the **data validation and market insights** layer that:
-
-1. **Ingests** dealership data from **multiple sources** (DMV, internal records, marketplaces) — each reporting slightly different figures.
-2. **Cross-validates** data points against **external benchmarks** (state-level trends, seasonality).
-3. **Flags outliers** with **confidence scores** for **human review** — no auto-correction.
-4. **Connects external market signals** (competitor launches, supply chain disruptions, economic indicators) to internal parameters and **forecasts impact**.
-5. **Exposes** validated data, outliers, and insights via a REST API and Angular dashboard.
-
----
-
-## Documentation
-
-| Document | Description |
-|----------|-------------|
-| **[docs/REQUIREMENTS_CHECKLIST.md](docs/REQUIREMENTS_CHECKLIST.md)** | Requirement-by-requirement checklist with demo proof — "is everything done?" |
-| **[docs/SETUP.md](docs/SETUP.md)** | Step-by-step setup and run instructions (Python, API, dashboard) |
-| **[docs/PROJECT_GUIDE.md](docs/PROJECT_GUIDE.md)** | Detailed project explanation for the team — data flow diagrams, file-by-file walkthrough, design decisions, how to extend |
-| **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Architecture diagram (Mermaid) and component selection justification — ingestion, validation, cross-validation, outlier detection, market signals, insight generation |
-| **[docs/KAGGLE_DATA.md](docs/KAGGLE_DATA.md)** | How to plug in Kaggle sample data (US used car sales, US Sales Cars Dataset, US Motor Vehicle Registrations) |
-
----
-
-## Quick start
-
-```powershell
-# 1. Setup
-cd "c:\Shorthills\ADK\AI Agent\Jump-Interview"
+```
+# setup
 python -m venv venv
 .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
-# 2. Run the validation pipeline
+# run the pipeline (generates output/processed_results.json)
 python -m scripts.run_validation_pipeline
 
-# 3. Start the API (keep running)
+# start the API
 uvicorn api.main:app --reload --port 8000
 
-# 4. In a new terminal: start the dashboard
+# in another terminal, start the dashboard
 cd dashboard
 npm install
 npm start
 ```
 
-- **Dashboard:** http://localhost:4200
-- **API docs:** http://localhost:8000/docs
+Dashboard: http://localhost:4200
+API docs: http://localhost:8000/docs
 
----
+## What it does
+
+**The pipeline runs in 5 steps:**
+
+1. **Ingest** — Loads dealer data from 3 sources (`data/source_dmv.csv`, `source_internal.csv`, `source_marketplace.csv`). Each has slightly different revenue/units for the same dealers. Validates schema.
+
+2. **Merge** — Groups by `dealer_id`, takes median across sources. If sources disagree by more than 10% (coefficient of variation), it's flagged as a conflict for human review. No values are auto-corrected.
+
+3. **Cross-validate** — Compares each dealer's revenue to their state average (`data/benchmarks/state_trends.csv`). Applies seasonality adjustment (`data/benchmarks/seasonality.csv`). Flags dealers outside 0.5x–2.0x of state norm.
+
+4. **Outlier detection** — Uses IQR method on revenue and units. Each outlier gets a confidence score (0 to 1) based on: how far from normal statistically (40%), whether multiple sources confirm it (30%), and whether state benchmarks also flag it (30%). Outliers go to a review list — nothing is auto-corrected.
+
+5. **Market signals** — Reads external signals from `data/market_signals.json` (supply chain disruption, competitor launches, economic indicators). Calculates revenue impact and shows it in the summary.
+
+Output goes to `output/processed_results.json`, which the FastAPI backend serves to the Angular dashboard.
+
+## What the dashboard shows
+
+- KPI cards (dealers, revenue, units, issue count)
+- Market impact section (which signals, what % effect)
+- Outliers for human review (with confidence scores)
+- Validation issues (source conflicts, state deviations)
+- Dealer table (merged data, revenue vs state ratio)
+
+## Current demo results
+
+With the sample data (15 dealers across 3 sources):
+- D011 (Golden State Motors) flagged as outlier — revenue 580K, confidence 0.88, 5x California state average
+- D012 (Lone Star Auto) — 28% revenue discrepancy across sources (DMV: 42K, internal: 58K, marketplace: 35K)
+- D014 (Sunshine Dealers) — 16% revenue discrepancy + 5x Florida state average
+- 3 market signals applied → -2.2% projected revenue impact
+
+## Architecture
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full diagram and why I picked each component.
 
 ## Project structure
 
 ```
-Jump-Interview/
-├── data/
-│   ├── source_dmv.csv              # DMV registration data
-│   ├── source_internal.csv         # Internal dealership records
-│   ├── source_marketplace.csv      # Online marketplace data
-│   ├── benchmarks/
-│   │   ├── state_trends.csv        # State-level avg revenue, units, std
-│   │   └── seasonality.csv         # Monthly seasonality index
-│   └── market_signals.json         # External market signals
-│
-├── scripts/
-│   ├── ingestion.py                # Multi-source ingestion + schema validation
-│   ├── merge_and_validate.py       # Merge by dealer_id (median), flag conflicts
-│   ├── cross_validate.py           # Compare vs state benchmarks + seasonality
-│   ├── outlier_detection.py        # IQR outlier detection + confidence scoring
-│   ├── market_signals.py           # External signal ingestion + impact forecast
-│   └── run_validation_pipeline.py  # Orchestrator: runs all layers, outputs JSON
-│
-├── api/
-│   └── main.py                     # FastAPI backend (serves data to dashboard)
-│
-├── dashboard/                      # Angular 17 app
-│   └── src/app/
-│       ├── dashboard/              # Main dashboard component
-│       └── services/               # API service
-│
-├── output/
-│   └── processed_results.json      # Generated by pipeline (consumed by API)
-│
-├── docs/
-│   ├── SETUP.md                    # Setup & run instructions
-│   ├── PROJECT_GUIDE.md            # Detailed project explanation
-│   ├── ARCHITECTURE.md             # Architecture diagram & justification
-│   └── KAGGLE_DATA.md              # Using Kaggle data with this system
-│
-└── requirements.txt                # Python dependencies
+scripts/
+  ingestion.py              # load + validate source CSVs
+  merge_and_validate.py     # merge by dealer_id, flag conflicts
+  cross_validate.py         # compare vs state benchmarks + seasonality
+  outlier_detection.py      # IQR + confidence scoring
+  market_signals.py         # external signal impact
+  run_validation_pipeline.py # orchestrator — runs everything
+
+data/
+  source_dmv.csv            # source 1
+  source_internal.csv       # source 2
+  source_marketplace.csv    # source 3
+  benchmarks/               # state trends + seasonality CSVs
+  market_signals.json       # external signals config
+
+api/main.py                 # FastAPI backend
+dashboard/                  # Angular frontend
+output/                     # generated JSON (pipeline output)
 ```
 
----
+## Using different data
 
-## Pipeline flow (summary)
+Drop your CSVs in `data/` with columns: `dealer_id, dealer_name, state, revenue, units_sold, report_date, source`. Update `SOURCE_FILES` in `scripts/ingestion.py` if you change filenames. Update `data/benchmarks/state_trends.csv` with relevant state averages.
 
-```
-Source CSVs ──► Ingest & Validate ──► Merge (median) ──► Cross-validate (state, season)
-                                          │
-                                          ▼
-Market Signals ──► Impact Forecast ──► Outlier Detection (confidence 0-1)
-                                          │
-                                          ▼
-                                   processed_results.json
-                                          │
-                                  ┌───────┴───────┐
-                                  ▼               ▼
-                             FastAPI API    Angular Dashboard
-```
-
----
-
-## API endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/results` | Full output (summary + dealers + issues + outliers) |
-| GET | `/api/summary` | KPI summary and market impact |
-| GET | `/api/issues` | All validation issues and flags |
-| GET | `/api/dealers` | Merged dealer records |
-| GET | `/api/outliers` | Outliers for human review (with confidence scores) |
-| POST | `/api/refresh` | Re-run pipeline and refresh data |
-
----
-
-## Key design principles
-
-- **No auto-correction:** Outliers and conflicts are flagged for human review, never silently fixed.
-- **Confidence scoring:** Outliers scored 0–1 (statistical strength + source agreement + benchmark confirmation) so reviewers prioritize high-confidence items.
-- **Multi-source merge:** Median across sources with conflict detection (high variance = flag).
-- **Extensible:** Add sources (new CSV), benchmarks (edit CSV), or signals (edit JSON) without code changes.
+Works with Kaggle datasets too (e.g. US used car sales) — just map columns to the expected format above.

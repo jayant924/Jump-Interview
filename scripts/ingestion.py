@@ -1,6 +1,5 @@
 """
-Multi-source ingestion: load dealership data from multiple sources (DMV, internal, marketplace).
-Each source can report slightly different figures; we tag and keep source for merge/validation.
+Load dealer data from multiple source CSVs and validate schema.
 """
 from pathlib import Path
 import pandas as pd

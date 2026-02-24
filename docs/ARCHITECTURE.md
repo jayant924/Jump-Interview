@@ -1,188 +1,136 @@
-# JumpIQ: Data Validation & Market Insights Architecture
+# Architecture: Data Validation & Market Insights
 
-**Purpose:** Scalable architecture to ingest dealership data from multiple sources, cross-validate against external benchmarks, flag outliers with confidence scores for human review, and connect market signals to internal parameters for impact forecasting.
+## Overview
 
----
+The system has 6 layers. Data flows top to bottom — each layer adds validation or enrichment, and nothing auto-corrects values. Everything flagged goes to human review.
 
-## 1. High-Level Architecture Diagram
+## Diagram
+
+```
+  DMV data ──┐
+  Internal ──┼──► INGESTION (schema validation, source tagging)
+  Marketplace┘          │
+                        ▼
+                   MERGE (median across sources, flag discrepancies)
+                        │
+         State trends ──┼──► CROSS-VALIDATION (vs state avg, seasonality adjustment)
+         Seasonality  ──┘          │
+                                   ▼
+                              OUTLIER DETECTION (IQR + z-score → confidence 0-1)
+                                   │
+         Competitor signals ──┐    │
+         Supply chain ────────┼──► MARKET SIGNALS (forecast revenue impact)
+         Economic indicators──┘    │
+                                   ▼
+                              OUTPUT (JSON → FastAPI → Angular dashboard)
+```
+
+For the formal Mermaid version:
 
 ```mermaid
 flowchart TB
-    subgraph SOURCES["Data Sources"]
+    subgraph Sources
         DMV[DMV Registrations]
-        RE[Real Estate Providers]
+        INT[Internal Records]
         MKT[Online Marketplaces]
-        INT[Internal Dealership Records]
     end
 
-    subgraph INGESTION["1. Data Ingestion Layer"]
-        ADAPTERS[Source Adapters]
-        QUEUE[Ingestion Queue]
-        RAW[(Raw Store)]
+    subgraph Ingestion
+        ADAPT[Source Adapters]
+        SCHEMA[Schema Validation]
     end
 
-    subgraph VALIDATION["2. Validation Layer"]
-        SCHEMA[Schema & Completeness]
-        RANGE[Range & Business Rules]
-        DEDUP[Conflict Resolution / Merge]
+    subgraph Validation
+        MERGE[Merge by dealer_id - median]
+        CONFLICT[Conflict Detection]
     end
 
-    subgraph BENCHMARKS["External Benchmarks"]
+    subgraph Benchmarks
         STATE[State-Level Trends]
         SEASON[Seasonality Factors]
-        ECON[Economic Indicators]
     end
 
-    subgraph CROSSVAL["3. Cross-Validation Layer"]
-        STATE_CMP[State Comparison]
-        SEASON_CMP[Seasonality Check]
-        BENCH_STORE[(Benchmark Store)]
+    subgraph CrossValidation
+        CMP[Compare vs State Avg]
+        ADJ[Seasonality Adjustment]
     end
 
-    subgraph OUTLIER["4. Outlier Detection Layer"]
-        STAT[Statistical Detection]
+    subgraph OutlierDetection
+        IQR[IQR + Z-Score]
         CONF[Confidence Scorer]
-        REVIEW[(Outliers for Human Review)]
+        REVIEW[Human Review Queue]
     end
 
-    subgraph SIGNALS["5. Market Signals Layer"]
-        COMP[Competitor Launches]
-        SUPPLY[Supply Chain]
-        ECON_SIG[Economic Signals]
+    subgraph MarketSignals
+        SIG[External Signals]
         IMPACT[Impact Forecaster]
     end
 
-    subgraph INSIGHTS["6. Insight Generation"]
-        AGG[Aggregation & KPIs]
-        ALERTS[Alerts & Recommendations]
-        API[API / Dashboard]
+    subgraph Output
+        JSON[processed_results.json]
+        API[FastAPI]
+        DASH[Angular Dashboard]
     end
 
-    SOURCES --> ADAPTERS
-    ADAPTERS --> QUEUE
-    QUEUE --> RAW
-    RAW --> SCHEMA
-    SCHEMA --> RANGE
-    RANGE --> DEDUP
-    BENCHMARKS --> BENCH_STORE
-    DEDUP --> STATE_CMP
-    DEDUP --> SEASON_CMP
-    BENCH_STORE --> STATE_CMP
-    BENCH_STORE --> SEASON_CMP
-    STATE_CMP --> STAT
-    SEASON_CMP --> STAT
-    STAT --> CONF
-    CONF --> REVIEW
-    DEDUP --> IMPACT
-    COMP --> IMPACT
-    SUPPLY --> IMPACT
-    ECON_SIG --> IMPACT
-    IMPACT --> AGG
-    REVIEW --> AGG
-    AGG --> ALERTS
-    ALERTS --> API
+    Sources --> ADAPT --> SCHEMA
+    SCHEMA --> MERGE --> CONFLICT
+    CONFLICT --> CMP
+    Benchmarks --> CMP
+    CMP --> ADJ --> IQR --> CONF --> REVIEW
+    REVIEW --> JSON
+    SIG --> IMPACT --> JSON
+    JSON --> API --> DASH
 ```
 
----
+## Why these choices
 
-## 2. Component Selection & Justification
+### Ingestion: Per-source CSV adapters
 
-### 2.1 Data Ingestion Layer
+Each source (DMV, internal, marketplace) has its own file with the same schema but different values. I keep them separate and tag each with the source name so we can trace back where a number came from. Schema validation catches missing columns or wrong types before anything else runs.
 
-| Component | Choice | Justification |
-|-----------|--------|---------------|
-| **Source adapters** | Per-source connectors (API, file, DB) | Each source (DMV, real estate, marketplaces, internal) has different formats and SLAs; adapters isolate schema mapping and error handling. |
-| **Ingestion queue** | Message queue (e.g. Kafka / RabbitMQ) or file-based queue | Decouples producers from consumers; allows backpressure and replay; in smaller deployments a scheduled job + shared storage is sufficient. |
-| **Raw store** | Object store (S3/GCS) or partitioned files (Parquet/CSV) | Immutable raw data for reprocessing and audit; partitioning by source and date enables incremental loads and cost control. |
+Could scale to API-based ingestion or a message queue (Kafka) if sources push data in real-time, but for this scope CSV files work fine.
 
-**Scalability:** Add new sources by adding adapters; scale ingestion horizontally with more consumers.
+### Merge: Median, not average
 
----
+When 3 sources report different revenue for the same dealer, I use the median — not the average. Average gets pulled by one extreme value. Median means if 2 out of 3 sources agree, the odd one out doesn't distort the result.
 
-### 2.2 Validation Layer
+I also compute the standard deviation across sources. If the coefficient of variation exceeds 10%, it's flagged as a conflict. The flag goes to human review — the system doesn't pick a "correct" value.
 
-| Component | Choice | Justification |
-|-----------|--------|---------------|
-| **Schema & completeness** | Schema registry + validation (e.g. JSON Schema, Pydantic, Great Expectations) | Ensures required fields and types before downstream logic; catches source schema drift early. |
-| **Range & business rules** | Rule engine (config-driven thresholds) | Validates numeric ranges (e.g. margin %, turnover), referential integrity (state codes, dealer IDs), and simple business rules. |
-| **Conflict resolution / merge** | Deterministic merge (e.g. latest-by-timestamp, source priority, or median across sources) | Multiple sources report “slightly different figures”; merge policy must be explicit and auditable. No auto-correction: conflicts can feed into outlier/review pipeline. |
+### Cross-validation: State benchmarks + seasonality
 
-**Human review:** Invalid or conflicting records are flagged with reason codes and pushed to the outlier/review store, not auto-corrected.
+Each dealer's revenue is compared to their state's average. If a dealer in Florida does 5x the Florida average, that's worth looking at. The threshold is 0.5x to 2.0x (configurable).
 
----
+Seasonality index prevents false flags — December sales are naturally higher, so we normalize before comparing.
 
-### 2.3 Cross-Validation (Benchmarks) Layer
+### Outlier detection: IQR + confidence scoring
 
-| Component | Choice | Justification |
-|-----------|--------|---------------|
-| **State-level trends** | Precomputed state aggregates (e.g. state avg revenue, registrations) updated periodically | Cross-validate dealer-level metrics against regional norms; deviations beyond a band (e.g. ±2σ) become candidate outliers. |
-| **Seasonality** | Month/quarter factors (e.g. index vs annual average) | Normalize for seasonality before comparing; avoids flagging normal seasonal swings as outliers. |
-| **Benchmark store** | Table/API (DB or file) with state, segment, and time dimensions | Single place to update benchmarks (from internal analytics or external vendors); versioned for reprocessing. |
+IQR (interquartile range) is a standard statistical method. Values outside Q1-1.5*IQR or Q3+1.5*IQR are flagged.
 
-**Output:** Per-record deviation scores vs benchmark (e.g. “revenue 1.8× state avg”) and a flag when outside acceptable band.
+The confidence score (0 to 1) combines three independent signals:
+- **Statistical strength (40%)** — how many standard deviations from mean (z-score). Higher z = more confident.
+- **Source agreement (30%)** — if multiple sources all report similar values, the median is reliable. If only 1 source, less confident.
+- **Benchmark confirmation (30%)** — if state benchmarks also flag this dealer, the outlier is more likely real.
 
----
+This way reviewers can prioritize: a 0.88 confidence outlier gets attention before a 0.4.
 
-### 2.4 Outlier Detection Layer
+No values are ever changed. This is intentional — the task says "not auto-correction."
 
-| Component | Choice | Justification |
-|-----------|--------|---------------|
-| **Statistical detection** | IQR, Z-score, or MAD on key metrics (revenue, margin, turnover) | Simple, interpretable, and robust for unimodal metrics; can run per segment/state to avoid mixing regimes. |
-| **Confidence scorer** | Score 0–1 from distance, consistency across sources, and benchmark deviation | Prioritizes human review: high-confidence outliers first; low-confidence can be batched or deprioritized. |
-| **Outliers for human review** | Dedicated store (DB table or export) with no auto-correction | Aligns with requirement: “flags outliers with confidence scores for human review (not auto-correction).” |
+### Market signals: Config-driven impact
 
-**Scalability:** Replace or complement with ML-based anomaly detection (e.g. Isolation Forest, Prophet) as data volume grows.
+External signals (supply chain issues, competitor launches, rate changes) are defined in a JSON file with a percentage effect on revenue. The forecaster sums them and applies to total revenue.
 
----
+Simple approach, but it shows the connection between external events and internal metrics. In production you'd want per-region or per-segment elasticity models.
 
-### 2.5 Market Signals Layer
+### Output: JSON → FastAPI → Angular
 
-| Component | Choice | Justification |
-|-----------|--------|---------------|
-| **Signal ingestion** | Feeds for competitor launches, supply chain events, economic indicators | External context to interpret internal metrics and forecast impact. |
-| **Impact forecaster** | Rule-based or light model (e.g. elasticity, segment multipliers) | Maps signals to internal parameters (e.g. “supply disruption → +X% cost, -Y% volume”); outputs scenario or point impact for downstream insights. |
+The pipeline writes one JSON file. The API reads it and serves endpoints. The dashboard calls the API. Clean separation — you could swap the frontend or add more API consumers without touching the pipeline.
 
-**Integration:** Signals and impact outputs are connected to the insight layer so dashboards can show “market context” and “forecast impact” alongside validated metrics and outliers.
+## What I'd add with more time
 
----
-
-### 2.6 Insight Generation Layer
-
-| Component | Choice | Justification |
-|-----------|--------|---------------|
-| **Aggregation & KPIs** | Validated + merged data aggregated by segment, state, time | Enables valuations, competitive scoring, momentum metrics, and market insights (per JumpIQ intro). |
-| **Alerts & recommendations** | Rule-based alerts on outliers, thresholds, and signal-driven impacts | Surfaces what needs human review and what might need action. |
-| **API / Dashboard** | REST API + Angular (or similar) dashboard | Serves validated data, outlier list with confidence, and market-impact summaries to analysts and M&A workflows. |
-
----
-
-## 3. Data Flow Summary
-
-1. **Ingest** — Multi-source data (DMV, real estate, marketplaces, internal) → raw store with source tag.
-2. **Validate** — Schema, range, and business rules; merge with explicit conflict policy; invalid/conflict records flagged.
-3. **Cross-validate** — Compare vs state-level trends and seasonality; compute deviation flags.
-4. **Outlier detection** — Statistical detection on key metrics → confidence score → **human review store (no auto-correction)**.
-5. **Market signals** — Ingest external signals; run impact forecaster; attach to internal parameters.
-6. **Insights** — Aggregate validated data, attach outliers and impact; expose via API and dashboard.
-
----
-
-## 4. Technology Mapping (Example)
-
-| Layer | Example stack | Notes |
-|-------|----------------|------|
-| Ingestion | Python + Pandas / Polars, Airflow or cron | File/API adapters; optional Kafka for scale. |
-| Validation | Pydantic, Great Expectations, config-driven rules | Same codebase can support larger validators. |
-| Benchmarks | SQLite / Postgres or Parquet | State/seasonality tables updated by separate job. |
-| Outlier | Scipy / statsmodels (IQR, z-score) | Optional: scikit-learn Isolation Forest, Prophet. |
-| Signals | Config + small Python module | Optional: event stream + real-time scoring. |
-| API & UI | FastAPI + Angular | Already implemented in this repo. |
-
----
-
-## 5. Running This Repo with Sample / Kaggle Data
-
-- **Sample data:** `data/` includes multi-source CSVs and `data/benchmarks/` for state and seasonality; the pipeline runs end-to-end (ingestion → validation → cross-validation → outlier with confidence → insights).
-- **Kaggle:** Use datasets such as **US used car sales data** (tsaustin), **US Sales Cars Dataset** (juanmerinobermejo), or **US Motor Vehicle Registrations**; see `docs/KAGGLE_DATA.md` for column mapping and where to place files so the same architecture runs on Kaggle-sourced data.
-
-This architecture is designed to scale from file-based proof-of-concept (as in this repo) to queue-based, distributed ingestion and richer ML-based outlier and impact models.
+- Real database instead of JSON file (Postgres or even SQLite)
+- Per-dealer market signal impact (not just aggregate)
+- Historical trend comparison (is this dealer declining or growing?)
+- Airflow or similar scheduler instead of manual/cron runs
+- ML-based anomaly detection (Isolation Forest) alongside IQR
+- Authentication on the API
+- More Kaggle datasets integrated for a richer demo
