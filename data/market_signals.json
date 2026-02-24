@@ -1,0 +1,20 @@
+{
+  "updated": "2025-02-24",
+  "signals": [
+    {
+      "name": "Supply chain disruption (Q1)",
+      "description": "Parts shortage affecting delivery times",
+      "effect_revenue_pct": -2.0
+    },
+    {
+      "name": "Competitor launch (Region West)",
+      "description": "New entrant in selected regions",
+      "effect_revenue_pct": -0.5
+    },
+    {
+      "name": "Economic indicator (rates)",
+      "description": "Interest rate environment",
+      "effect_revenue_pct": 0.3
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+dealer_id,dealer_name,state,revenue,units_sold,report_date,source
+D001,North Auto Ltd,CA,125000,50,2025-02-20,internal
+D002,South Motors,TX,89000,41,2025-02-18,internal
+D003,East Wheels,NY,210000,80,2025-02-22,internal
+D004,West Drive Co,WA,45000,20,2025-01-15,internal
+D005,Midland Cars,OH,310000,110,2025-02-23,internal
+D006,Coastal Auto,FL,67000,36,2025-02-10,internal
+D007,Central Parts,IL,180000,75,2025-02-21,internal
+D008,Lakeside Motors,MN,23000,12,2024-12-01,internal
+D009,Valley Dealers,CO,156000,60,2025-02-19,internal
+D010,Peak Automotive,CA,98000,46,2025-02-17,internal
+D011,Golden State Motors,CA,620000,225,2025-02-22,internal
+D012,Lone Star Auto,TX,58000,22,2025-02-15,internal
+D013,Empire Wheels,NY,185000,75,2025-02-20,internal
+D014,Sunshine Dealers,FL,280000,120,2025-02-18,internal
+D015,Rocky Mountain Auto,CO,148000,55,2025-02-21,internal

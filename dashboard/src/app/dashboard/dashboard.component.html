@@ -1,0 +1,135 @@
+<div class="dashboard">
+  <header class="header">
+    <h1>Dealer Analytics Dashboard</h1>
+    <p class="subtitle">Data validation · Multi-source · Outliers for human review · Market insights</p>
+    <div class="header-actions">
+      <span class="last-run" *ngIf="generatedAt">Last run: {{ formatDate(generatedAt) }}</span>
+      <button class="btn btn-primary" (click)="refresh()" [disabled]="refreshing">
+        {{ refreshing ? 'Refreshing…' : 'Refresh data' }}
+      </button>
+    </div>
+  </header>
+
+  <div class="error-banner" *ngIf="error">
+    {{ error }}
+  </div>
+
+  <div class="loading" *ngIf="loading && !error">Loading…</div>
+
+  <ng-container *ngIf="!loading && summary">
+    <!-- KPI cards -->
+    <section class="kpis">
+      <div class="card kpi">
+        <span class="kpi-label">Total dealers</span>
+        <span class="kpi-value">{{ summary.total_dealers }}</span>
+      </div>
+      <div class="card kpi">
+        <span class="kpi-label">Total revenue</span>
+        <span class="kpi-value">{{ formatCurrency(summary.total_revenue) }}</span>
+      </div>
+      <div class="card kpi" *ngIf="summary.total_profit != null">
+        <span class="kpi-label">Total profit</span>
+        <span class="kpi-value" [class.negative]="summary.total_profit < 0">{{ formatCurrency(summary.total_profit) }}</span>
+      </div>
+      <div class="card kpi" *ngIf="summary.avg_margin_pct != null">
+        <span class="kpi-label">Avg margin %</span>
+        <span class="kpi-value">{{ summary.avg_margin_pct }}%</span>
+      </div>
+      <div class="card kpi" *ngIf="summary.total_units != null">
+        <span class="kpi-label">Total units</span>
+        <span class="kpi-value">{{ summary.total_units }}</span>
+      </div>
+      <div class="card kpi kpi-issues">
+        <span class="kpi-label">Issues / outliers</span>
+        <span class="kpi-value">{{ summary.issues_count }}</span>
+        <span class="kpi-sublabel">across {{ summary.dealers_with_issues }} dealers · {{ summary.outliers_count || 0 }} outliers</span>
+      </div>
+    </section>
+
+    <!-- Market impact (external signals) -->
+    <section class="card section" *ngIf="summary.market_impact">
+      <h2>Market impact (external signals)</h2>
+      <p class="section-desc">Signals applied: {{ summary.market_impact.signals_applied }} · Revenue delta: {{ summary.market_impact.revenue_delta_pct }}% · Impact: {{ formatCurrency(summary.market_impact.revenue_impact) }}</p>
+      <ul class="impact-notes" *ngIf="summary.market_impact.impact_notes?.length">
+        <li *ngFor="let n of summary.market_impact.impact_notes"><strong>{{ n.signal }}</strong>: {{ n.description }} ({{ n.effect_revenue_pct > 0 ? '+' : '' }}{{ n.effect_revenue_pct }}%)</li>
+      </ul>
+    </section>
+
+    <!-- Outliers for human review (confidence scores; no auto-correction) -->
+    <section class="card section outliers-section">
+      <h2>Outliers for human review</h2>
+      <p class="section-desc">Confidence score 0–1 for prioritization. No auto-correction.</p>
+      <div class="outliers-list" *ngIf="outliers.length; else noOutliers">
+        <div class="outlier-item" *ngFor="let o of outliers" [class.high-conf]="o.confidence_score >= 0.6">
+          <span class="outlier-dealer">{{ o.dealer_id }}</span>
+          <span class="outlier-metric">{{ o.metric }}</span>
+          <span class="outlier-value">{{ o.value }} (z={{ o.z_score }})</span>
+          <span class="outlier-confidence" [title]="'Confidence: ' + o.confidence_score">confidence {{ o.confidence_score }}</span>
+          <span class="outlier-reason">{{ o.reason }}</span>
+        </div>
+      </div>
+      <ng-template #noOutliers>
+        <p class="empty">No outliers flagged.</p>
+      </ng-template>
+    </section>
+
+    <!-- Issues by severity (mini bars) -->
+    <section class="card section" *ngIf="summary.issues_by_severity && (summary.issues_count > 0)">
+      <h2>Issues by severity</h2>
+      <div class="severity-bars">
+        <div class="bar-row" *ngFor="let pair of summary.issues_by_severity | keyvalue">
+          <span class="bar-label severity-{{ pair.key }}">{{ pair.key }}</span>
+          <div class="bar-track"><div class="bar-fill severity-{{ pair.key }}" [style.width.%]="(pair.value / summary.issues_count) * 100"></div></div>
+          <span class="bar-value">{{ pair.value }}</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Issues / flaws list -->
+    <section class="card section issues-section">
+      <h2>Validation issues &amp; flags</h2>
+      <p class="section-desc">Schema, multi-source conflicts, state deviation, outliers.</p>
+      <div class="issues-list" *ngIf="issues.length; else noIssues">
+        <div class="issue-item" *ngFor="let issue of issues" [ngClass]="severityClass(issue.severity)">
+          <span class="issue-severity">{{ issue.severity }}</span>
+          <span class="issue-dealer">{{ issue.dealer_id }}</span>
+          <span class="issue-message">{{ issue.message }}</span>
+        </div>
+      </div>
+      <ng-template #noIssues>
+        <p class="empty">No issues detected.</p>
+      </ng-template>
+    </section>
+
+    <!-- Dealers table -->
+    <section class="card section dealers-section">
+      <h2>Dealers (merged from multi-source)</h2>
+      <div class="table-wrap">
+        <table class="dealers-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>State</th>
+              <th>Revenue</th>
+              <th>Units</th>
+              <th>Vs state</th>
+              <th>Issues</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let d of dealers" [class.has-issues]="d.issue_count > 0">
+              <td>{{ d.dealer_id }}</td>
+              <td>{{ d.dealer_name }}</td>
+              <td>{{ regionOrState(d) }}</td>
+              <td>{{ formatCurrency(d.revenue) }}</td>
+              <td>{{ d.units_sold != null ? d.units_sold : '—' }}</td>
+              <td>{{ d.revenue_vs_state != null ? (d.revenue_vs_state | number:'1.2-2') + 'x' : '—' }}</td>
+              <td><span class="issue-count" *ngIf="d.issue_count">{{ d.issue_count }}</span><span *ngIf="!d.issue_count">—</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </ng-container>
+</div>
